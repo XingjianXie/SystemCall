@@ -12,6 +12,8 @@ import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.commands.arguments.item.ItemArgument;
 import net.minecraft.commands.arguments.item.ItemInput;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.TextComponent;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -39,17 +41,18 @@ public class SystemCallCommand {
     public SystemCallCommand() {
     }
 
-    public static boolean cost(CommandSourceStack commandSourceStack, int level) throws CommandSyntaxException {
+    public static boolean checkoutLevel(CommandSourceStack commandSourceStack, int level)
+            throws CommandSyntaxException {
         ServerPlayer player = commandSourceStack.getPlayerOrException();
         if (player.isCreative()) {
-            return true;
+            return false;
         }
         if (player.experienceLevel >= level) {
             player.setExperienceLevels(player.experienceLevel - level);
-            return true;
+            return false;
         }
         commandSourceStack.sendFailure(new TextComponent("No enough sacred level! Required: " + level));
-        return false;
+        return true;
     }
 
     public static boolean requiredLevel(CommandSourceStack commandSourceStack, int level) {
@@ -67,7 +70,7 @@ public class SystemCallCommand {
     public static int litTargets(CommandSourceStack commandSourceStack, Collection<? extends Entity> collection)
             throws CommandSyntaxException {
         int j = 0;
-        if (!cost(commandSourceStack, 4 * collection.size())) return 0;
+        if (checkoutLevel(commandSourceStack, 4 * collection.size())) return 0;
         for (Entity entity : collection) {
             MobEffectInstance mobEffectInstance =
                     new MobEffectInstance(MobEffects.GLOWING, 400, 0, false, false);
@@ -144,7 +147,7 @@ public class SystemCallCommand {
         ServerPlayer player = commandSourceStack.getPlayerOrException();
         if ("right".equals(origin) && "self".equals(target)) {
             Collection<Mob> list = getRight(player);
-            if (!cost(commandSourceStack, list.size() * 15)) return 0;
+            if (checkoutLevel(commandSourceStack, list.size() * 15)) return 0;
             for (Mob mob : list) {
                 float transfer = Math.min(4.0f, mob.getHealth());
                 mob.hurt(DamageSource.OUT_OF_WORLD, transfer);
@@ -155,7 +158,7 @@ public class SystemCallCommand {
             }
         } else if ("self".equals(origin) && "right".equals(target)) {
             Collection<Mob> list = getRight(player);
-            if (!cost(commandSourceStack, list.size() * 15)) return 0;
+            if (checkoutLevel(commandSourceStack, list.size() * 15)) return 0;
             for (Mob mob : list) {
                 float transfer = Math.min(4.0f, player.getHealth());
                 player.hurt(DamageSource.OUT_OF_WORLD, transfer);
@@ -163,7 +166,7 @@ public class SystemCallCommand {
                 mob.heal(transfer);
             }
         } else if ("left".equals(origin) && "self".equals(target)) {
-            if (!cost(commandSourceStack, 15)) return 0;
+            if (checkoutLevel(commandSourceStack, 15)) return 0;
             ItemEntity itemEntity = player.drop(player.getItemBySlot(EquipmentSlot.HEAD), false);
             if (itemEntity != null) {
                 itemEntity.setNoPickUpDelay();
@@ -193,15 +196,21 @@ public class SystemCallCommand {
 
         final LiteralArgumentBuilder<CommandSourceStack> inspectEntireCommandList =
                 literals("inspect entire command list", literal -> literal.executes(context -> {
-                    TextComponent info = new TextComponent("*Entire Command List*");
-                    commandDispatcher.getSmartUsage(
+                    MutableComponent info = new TextComponent("");
+                    info.append(new TextComponent("Entire Command List")
+                            .withStyle(ChatFormatting.YELLOW)
+                            .withStyle(ChatFormatting.BOLD));
+                    for (String s : commandDispatcher.getAllUsage(
                             commandDispatcher.getRoot().getChild("system").getChild("call"),
-                            context.getSource()
-                    ).forEach(
-                            (commandSourceStackCommandNode, s) ->
-                                    info.append("\n" + commandSourceStackCommandNode.getName() +  ": " + s)
-                    );
-                    context.getSource().sendSuccess(info.withStyle(ChatFormatting.RED), false);
+                            context.getSource(),
+                            false
+                    )) {
+                        info.append(
+                                new TextComponent("\n" + s)
+                                        .withStyle(ChatFormatting.BLUE)
+                        );
+                    }
+                    context.getSource().sendSuccess(info, false);
                     return 1;
                 })).requires(commandSourceStack -> requiredLevel(commandSourceStack, 180));
 
@@ -237,32 +246,31 @@ public class SystemCallCommand {
 
         final LiteralArgumentBuilder<CommandSourceStack> fly = Commands.literal("fly").executes(context -> {
             ServerPlayer player = context.getSource().getPlayerOrException();
-            if (!cost(context.getSource(), 80)) {
+            if (checkoutLevel(context.getSource(), 80)) {
                 return 0;
             }
             player.getAbilities().flying = true;
             player.onUpdateAbilities();
             return 1;
-        }).requires(commandSourceStack -> requiredLevel(commandSourceStack, 180));;
+        }).requires(commandSourceStack -> requiredLevel(commandSourceStack, 180));
 
         final LiteralArgumentBuilder<CommandSourceStack> changeFieldAttribution =
                 literals("change field attribution", literal -> literal.redirect(
                         commandDispatcher.getRoot().getChild("gamerule")
                 )).requires(commandSourceStack -> commandSourceStack.hasPermission(2));
 
-        commandDispatcher.register(
-                literals("system call", literal -> literal.executes(context -> {
-                            context.getSource().sendFailure(new TextComponent("No arguments!")
-                                    .withStyle(ChatFormatting.RED));
-                            return 0;
-                        })
-                        .then(inspectEntireCommandList) // Require 180, Cost 0
-                        .then(litTargets) // Require 40, Cost 4 * targets count
-                        .then(generateItemElement) // Require permission 2, Cost 0
-                        .then(transferHumanUnitDurability) // Require 120, Cost 15 * targets count
-                        .then(fly) // Require 180, Cost 80
-                        .then(changeFieldAttribution) // Require permission 2, Cost 0
-                ).requires(commandSourceStack -> requiredLevel(commandSourceStack, 15))
-        );
+        commandDispatcher.register(literals("system call", literal -> literal.executes(context -> {
+            context.getSource().sendFailure(new TextComponent("No arguments!")
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        })
+                .then(fly) // Require 180, Cost 80
+                .then(inspectEntireCommandList) // Require 180, Cost 0
+                .then(litTargets) // Require 40, Cost 4 * targets count
+                .then(generateItemElement) // Require permission 2, Cost 0
+                .then(transferHumanUnitDurability) // Require 120, Cost 15 * targets count
+                .then(changeFieldAttribution) // Require permission 2, Cost 0
+
+        ).requires(commandSourceStack -> requiredLevel(commandSourceStack, 15)));
     }
 }
