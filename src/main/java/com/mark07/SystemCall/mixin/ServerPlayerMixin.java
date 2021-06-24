@@ -24,9 +24,9 @@ public abstract class ServerPlayerMixin extends Player {
 
     @Inject(at = @At("HEAD"), method = "doTick()V")
     private void doTick(CallbackInfo ci) {
-        if (this.experienceLevel != this.lastRecordedLevel) {
+        if (super.experienceLevel != this.lastRecordedLevel) {
             this.server.getCommands().sendCommands((ServerPlayer)(Object)this);
-            System.out.println("Send new command tree!");
+            //System.out.println("Send new command tree!");
         }
     }
 }

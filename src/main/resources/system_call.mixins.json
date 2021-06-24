@@ -4,6 +4,9 @@
   "package": "com.mark07.SystemCall.mixin",
   "compatibilityLevel": "JAVA_16",
   "mixins": [
+    "ArmorStandInvoker",
+    "EntityInvoker",
+    "LivingEntityMixin",
     "ServerPlayerMixin"
   ],
   "client": [
